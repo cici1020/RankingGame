@@ -96,11 +96,11 @@
     </div>
 
     <script>
-        // ================= 配置区域 (V9 最终配置) =================
-        // 这是你的 Supabase URL 和 Anon Key，Anon Key是公开的，请放心使用。
+        // ================= 配置区域 =================
+        // 这是你的 Supabase URL 和 Anon Key，请勿修改。
         const SUPABASE_URL = 'https://nhyolnegjehxapmvypxc.supabase.co'; 
         const SUPABASE_KEY = 'sb_publishable_28A4O_S-QsO8BBOj667ocw_ZYTlbQwS';
-        // ------------------------------------------------------------
+        // ===========================================
 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         const params = new URLSearchParams(window.location.search);
@@ -204,7 +204,7 @@
             renderCreatorGrid();
         }
 
-        // 渲染出题网格 (不变)
+        // 渲染出题网格
         function renderCreatorGrid() {
             const container = document.getElementById('creator-grid');
             container.innerHTML = '';
@@ -239,7 +239,7 @@
             selectedImages[index].text = val;
         }
 
-        // 提交创建 (V9 最终匿名版)
+        // 提交创建 (V10 最终匿名版，使用 SDK 上传)
         async function createGame() {
             const title = document.getElementById('game-title').value || "未命名游戏";
             if (selectedImages.length < 3) return alert("请至少上传3张图片");
@@ -249,10 +249,7 @@
             try {
                 const uploadedContent = [];
                 
-                // V9 核心：使用公开的 Anon Key 作为 Bearer Token，以满足 Storage API 的授权要求
-                const accessToken = SUPABASE_KEY; 
-                
-                // 循环上传：使用原生 Fetch + FormData
+                // 循环上传：使用 Supabase SDK 的 upload 方法 (V10 修复)
                 for (let i = 0; i < selectedImages.length; i++) {
                     const item = selectedImages[i];
                     
@@ -260,27 +257,19 @@
                     const fileExt = 'jpg'; 
                     const safePath = `${Date.now()}_${i}.${fileExt}`; 
                     
-                    const formData = new FormData();
-                    const safeAsciiFileName = `file_${i}.${fileExt}`;
-                    // item.file 是压缩后的 Blob
-                    formData.append('file', item.file, safeAsciiFileName); 
-                    
-                    const storageUrl = `${SUPABASE_URL}/storage/v1/object/game-images/${safePath}`;
+                    // 使用 SDK 的 upload 方法，让 SDK 自动处理 Anon Key 授权
+                    const { error: uploadError } = await supabase.storage
+                        .from('game-images')
+                        .upload(safePath, item.file, {
+                            // item.file 是压缩后的 Blob
+                            cacheControl: '3600',
+                            upsert: false,
+                            contentType: 'image/jpeg' 
+                        });
 
-                    // 发送请求：使用 Anon Key 进行授权
-                    const response = await fetch(storageUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`, 
-                            'x-upsert': 'false', 
-                            'cache-control': 'max-age=3600'
-                        },
-                        body: formData 
-                    });
-
-                    if (!response.ok) {
-                        const errData = await response.json();
-                        throw new Error(`Storage API Error (${response.status}): ${errData.message || response.statusText}`);
+                    if (uploadError) {
+                        console.error("Supabase Storage Upload Error:", uploadError);
+                        throw new Error(`Storage Upload 失败。请检查 RLS 策略是否允许 'anon' 写入。 错误信息: ${uploadError.message}`);
                     }
 
                     // 获取链接
@@ -318,7 +307,7 @@
         }
 
 
-        // === 玩家逻辑 (V6/V9 修复版，确保函数定义完整) ===
+        // === 玩家逻辑 (V10 修复版，确保函数定义完整) ===
         let sortableInstance;
         async function loadGame(id) {
             document.getElementById('creator-panel').classList.add('hidden');
