@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片排序挑战 - 轻松出题</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    
+    <style>
+        /* === 全局样式 === */
+        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f4f6f8; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        
+        /* 按钮 */
+        button { width: 100%; padding: 14px; margin: 10px 0; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 16px; transition: 0.2s; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0069d9; }
+        .btn-outline { background: transparent; border: 2px dashed #cbd5e0; color: #4a5568; }
+        .btn-outline:hover { border-color: #007bff; color: #007bff; background: #f8fbff; }
+        
+        input[type="text"] { width: 100%; padding: 12px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+
+        /* === 出题区域样式 === */
+        #creator-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; }
+        .upload-card { background: #fff; border-radius: 10px; overflow: hidden; border: 1px solid #eee; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.05); display: flex; flex-direction: column;}
+        
+        /* 缩略图 */
+        .thumb-box { height: 140px; width: 100%; background: #eee; position: relative; cursor: grab; }
+        .thumb-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        
+        /* 删除按钮 (右上角红叉) */
+        .delete-btn { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.6); color: white; border-radius: 50%; width: 24px; height: 24px; text-align: center; line-height: 24px; cursor: pointer; font-size: 14px; z-index: 10;}
+        .delete-btn:hover { background: #dc3545; }
+
+        /* 序号标签 */
+        .index-badge { position: absolute; top: 5px; left: 5px; background: rgba(0,123,255,0.9); color: white; font-size: 12px; padding: 2px 8px; border-radius: 10px; z-index: 10; }
+
+        /* 底部输入框 */
+        .input-area { padding: 8px; border-top: 1px solid #f0f0f0; }
+        .input-area input { margin: 0; padding: 8px; font-size: 13px; width: 100%; border: 1px solid #eee; }
+
+        /* === 玩家区域样式 === */
+        #game-area { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 15px; }
+        .game-item { position: relative; cursor: grab; border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 1; border: 4px solid transparent; }
+        .game-item img { width: 100%; height: 100%; object-fit: cover; }
+        .game-item.correct { border-color: #28a745; }
+        .game-item.wrong { border-color: #dc3545; }
+
+        .hidden { display: none !important; }
+        #loading { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 999; }
+    </style>
+</head>
+<body>
+
+    <div id="loading" class="hidden">
+        <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+        <div>处理中，请稍候...</div>
+    </div>
+
+    <div id="main-panel">
+        
+        <div id="creator-panel" class="card hidden">
+            <h3 style="margin-top:0; text-align:center;">📷 欢迎出题</h3>
+            
+            <label style="font-weight:bold;">游戏标题</label>
+            <input type="text" id="game-title" placeholder="例如：猜猜这是哪一年？">
+
+            <div style="margin-top: 20px;">
+                <label style="font-weight:bold;">已选图片 (可拖拽排序)</label>
+                <div style="font-size:12px; color:#666; margin-bottom:10px;">请按照正确的时间/逻辑顺序排列图片</div>
+                
+                <div id="creator-grid"></div>
+
+                <input type="file" id="hidden-file-input" multiple accept="image/*" style="display:none" onchange="handleFileSelect(this)">
+                
+                <button class="btn-outline" onclick="document.getElementById('hidden-file-input').click()" style="margin-top:15px;">
+                    ➕ 添加图片 (支持多次选择，最多10张)
+                </button>
+            </div>
+
+            <div style="margin-top:30px; border-top: 1px solid #eee; padding-top:20px;">
+                <div id="status-bar" style="text-align:center; margin-bottom:10px; font-size:14px; color:#666;">当前已选 0 张 (最少3张)</div>
+                <button class="btn-primary" onclick="createGame()">🚀 生成并分享</button>
+            </div>
+        </div>
+
+        <div id="player-panel" class="card hidden">
+            <h2 id="play-title" style="text-align:center; margin-bottom:10px;"></h2>
+            <p style="text-align:center; color:#666; margin-top:0;">👇 拖拽图片还原顺序 👇</p>
+            <div id="game-area"></div>
+            <button id="submit-btn" class="btn-primary" onclick="submitAnswer()">提交答案</button>
+            <button id="retry-btn" class="btn-primary hidden" onclick="retryGame()" style="background:#6c757d;">再试一次</button>
+            <div id="result-msg" style="text-align:center; margin-top:15px; font-weight:bold; font-size:18px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // ================= 配置区域 (V9 最终配置) =================
+        // 这是你的 Supabase URL 和 Anon Key，Anon Key是公开的，请放心使用。
+        const SUPABASE_URL = 'https://nhyolnegjehxapmvypxc.supabase.co'; 
+        const SUPABASE_KEY = 'sb_publishable_28A4O_S-QsO8BBOj667ocw_ZYTlbQwS';
+        // ------------------------------------------------------------
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const params = new URLSearchParams(window.location.search);
+        const gameId = params.get('id');
+
+        // 全局变量：暂存用户选择的 **压缩后** 的 Blob 对象
+        let selectedImages = []; 
+
+        // === 初始化：判断是出题还是玩家模式 ===
+        (function init() {
+            if (gameId) {
+                // 玩家模式
+                loadGame(gameId);
+            } else {
+                // 出题模式
+                showCreatorUI();
+            }
+        })();
+        
+        // === 通用工具函数 ===
+        function toggleLoading(show) { 
+            document.getElementById('loading').className = show ? '' : 'hidden'; 
+        }
+
+        // === 图片压缩逻辑 (V7 优化) ===
+        function compressImage(file, quality = 0.85) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        // 保持宽高比
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        // 将 Canvas 内容导出为 Blob，统一使用 JPEG 格式进行压缩
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                resolve(blob);
+                            } else {
+                                reject(new Error("Canvas to Blob conversion failed."));
+                            }
+                        }, 'image/jpeg', quality); 
+                    };
+                    img.onerror = (e) => reject(e);
+                };
+                reader.onerror = (e) => reject(e);
+            });
+        }
+
+        // === 出题界面逻辑 ===
+        function showCreatorUI() {
+            document.getElementById('creator-panel').classList.remove('hidden');
+            renderCreatorGrid();
+            new Sortable(document.getElementById('creator-grid'), {
+                animation: 150,
+                handle: '.thumb-box',
+                onEnd: function (evt) {
+                    const item = selectedImages.splice(evt.oldIndex, 1)[0];
+                    selectedImages.splice(evt.newIndex, 0, item);
+                    renderCreatorGrid(); 
+                }
+            });
+        }
+
+        // 处理文件选择（增加压缩处理）
+        async function handleFileSelect(input) {
+            const files = Array.from(input.files);
+            if (selectedImages.length + files.length > 10) {
+                alert("最多只能上传 10 张图片，请重新选择");
+                return;
+            }
+
+            toggleLoading(true);
+
+            for (const file of files) {
+                try {
+                    const compressedBlob = await compressImage(file, 0.85);
+                    
+                    const uniqueId = Date.now() + Math.random();
+                    selectedImages.push({
+                        id: uniqueId,
+                        file: compressedBlob, 
+                        url: URL.createObjectURL(compressedBlob), 
+                        text: '' 
+                    });
+                } catch (e) {
+                    console.error("图片压缩失败:", e);
+                    alert(`文件 ${file.name} 压缩失败，已跳过。`);
+                }
+            }
+            
+            toggleLoading(false);
+            input.value = ''; 
+            renderCreatorGrid();
+        }
+
+        // 渲染出题网格 (不变)
+        function renderCreatorGrid() {
+            const container = document.getElementById('creator-grid');
+            container.innerHTML = '';
+
+            selectedImages.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = 'upload-card';
+                div.innerHTML = `
+                    <div class="thumb-box">
+                        <div class="index-badge">${index + 1}</div>
+                        <div class="delete-btn" onclick="removeImage(${index})">×</div>
+                        <img src="${item.url}">
+                    </div>
+                    <div class="input-area">
+                        <input type="text" placeholder="答案/说明 (可选)" value="${item.text}" oninput="updateText(${index}, this.value)">
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+
+            document.getElementById('status-bar').innerText = `当前已选 ${selectedImages.length} 张 (最少3张，最多10张)`;
+        }
+
+        // 删除某张图 (全局访问)
+        window.removeImage = function(index) {
+            selectedImages.splice(index, 1);
+            renderCreatorGrid();
+        }
+
+        // 更新文字输入 (全局访问)
+        window.updateText = function(index, val) {
+            selectedImages[index].text = val;
+        }
+
+        // 提交创建 (V9 最终匿名版)
+        async function createGame() {
+            const title = document.getElementById('game-title').value || "未命名游戏";
+            if (selectedImages.length < 3) return alert("请至少上传3张图片");
+
+            toggleLoading(true);
+
+            try {
+                const uploadedContent = [];
+                
+                // V9 核心：使用公开的 Anon Key 作为 Bearer Token，以满足 Storage API 的授权要求
+                const accessToken = SUPABASE_KEY; 
+                
+                // 循环上传：使用原生 Fetch + FormData
+                for (let i = 0; i < selectedImages.length; i++) {
+                    const item = selectedImages[i];
+                    
+                    // V7 优化：统一使用 JPEG 格式
+                    const fileExt = 'jpg'; 
+                    const safePath = `${Date.now()}_${i}.${fileExt}`; 
+                    
+                    const formData = new FormData();
+                    const safeAsciiFileName = `file_${i}.${fileExt}`;
+                    // item.file 是压缩后的 Blob
+                    formData.append('file', item.file, safeAsciiFileName); 
+                    
+                    const storageUrl = `${SUPABASE_URL}/storage/v1/object/game-images/${safePath}`;
+
+                    // 发送请求：使用 Anon Key 进行授权
+                    const response = await fetch(storageUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`, 
+                            'x-upsert': 'false', 
+                            'cache-control': 'max-age=3600'
+                        },
+                        body: formData 
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(`Storage API Error (${response.status}): ${errData.message || response.statusText}`);
+                    }
+
+                    // 获取链接
+                    const { data: { publicUrl } } = supabase.storage.from('game-images').getPublicUrl(safePath);
+                    
+                    uploadedContent.push({
+                        id: i,
+                        url: publicUrl,
+                        text: item.text,
+                        correctIndex: i
+                    });
+                }
+
+                // 存入数据库 (使用 Anon 权限写入)
+                const { data, error } = await supabase.from('quizzes')
+                    .insert([{ 
+                        title: title, 
+                        game_type: 'sort', 
+                        content: uploadedContent 
+                    }])
+                    .select();
+
+                if (error) throw error;
+
+                // 给出公网分享链接
+                const shareUrl = `${location.origin}${location.pathname}?id=${data[0].id}`;
+                prompt("🎉 游戏创建成功！复制公网链接发给朋友：", shareUrl);
+                
+            } catch (err) {
+                console.error("创建失败的详细错误:", err);
+                alert(`创建失败。请检查：1. 是否运行了最新的 SQL 策略； 2. 详细错误：${err.message}`);
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+
+        // === 玩家逻辑 (V6/V9 修复版，确保函数定义完整) ===
+        let sortableInstance;
+        async function loadGame(id) {
+            document.getElementById('creator-panel').classList.add('hidden');
+            toggleLoading(true);
+            
+            // 玩家模式只需要 SELECT (读取) 权限，不需要登录
+            const { data, error } = await supabase.from('quizzes').select('*').eq('id', id).single();
+            toggleLoading(false);
+
+            if (error) return alert("游戏不存在或无权访问");
+
+            document.getElementById('player-panel').classList.remove('hidden');
+            document.getElementById('play-title').innerText = data.title;
+            
+            // 打乱顺序
+            let items = data.content;
+            items.sort(() => Math.random() - 0.5);
+            
+            const container = document.getElementById('game-area');
+            container.innerHTML = ''; 
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'game-item';
+                div.dataset.correctIndex = item.correctIndex;
+                div.innerHTML = `<img src="${item.url}">`;
+                container.appendChild(div);
+            });
+
+            sortableInstance = new Sortable(container, { animation: 150 });
+        }
+
+        function submitAnswer() {
+            const divs = document.querySelectorAll('.game-item');
+            let correct = 0;
+            divs.forEach((div, index) => {
+                if (parseInt(div.dataset.correctIndex) === index) {
+                    div.classList.add('correct');
+                    correct++;
+                } else {
+                    div.classList.add('wrong');
+                }
+            });
+            
+            const isAllCorrect = correct === divs.length;
+            const msg = document.getElementById('result-msg');
+            msg.innerHTML = isAllCorrect ? "🎉 全对！" : `❌ 只有 ${correct} 个位置是对的`;
+            msg.style.color = isAllCorrect ? "green" : "red";
+            
+            if(!isAllCorrect) document.getElementById('retry-btn').classList.remove('hidden');
+            sortableInstance.option("disabled", true);
+            document.getElementById('submit-btn').classList.add('hidden');
+        }
+
+        function retryGame() {
+            document.querySelectorAll('.game-item').forEach(d => d.classList.remove('correct', 'wrong'));
+            document.getElementById('retry-btn').classList.add('hidden');
+            document.getElementById('submit-btn').classList.remove('hidden');
+            document.getElementById('result-msg').innerHTML = '';
+            sortableInstance.option("disabled", false);
+            // 恢复原始打乱状态
+            loadGame(gameId);
+        }
+    </script>
+</body>
+</html>
